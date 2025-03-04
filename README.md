@@ -1,48 +1,64 @@
 # NestedArgs
 
-NestedArgs is a .NET library designed to streamline the creation and handling of complex command-line arguments in .NET applications. It allows for the definition of nested commands and options, making it easier to build intuitive and powerful command-line interfaces for your applications.
+NestedArgs is a .NET library designed to simplify the creation and management of complex command-line arguments in .NET applications. By supporting nested commands and options, it enables developers to craft intuitive, powerful, and well-structured command-line interfaces with ease.
 
-# Key Advantages of NestedArgs
+## Key Advantages of NestedArgs
 
-NestedArgs stands out among other command line parsing libraries due to several key features and advantages, including its support for Ahead-of-Time (AOT) compilation. Here are the main benefits:
+NestedArgs distinguishes itself from other command-line parsing libraries through its robust feature set and support for Ahead-of-Time (AOT) compilation. Here are the primary benefits:
 
-1. **Hierarchical Command Structure**: NestedArgs allows for defining commands and sub-commands in a nested, hierarchical manner. This feature is particularly useful for complex applications with multiple levels of commands and options, offering a more organized and intuitive user interface.
+1. **Hierarchical Command Structure**  
+   NestedArgs enables you to define commands and subcommands in a nested, hierarchical way. This is ideal for applications with multiple command levels, providing an organized and user-friendly interface. For instance, think of a `git`-like structure with commands such as `git commit` or `git push`, each with their own options—NestedArgs makes this simple and intuitive.
 
-2. **Flexible Option Handling**: The library provides extensive support for options, including long and short names, default values, required options, and more. This flexibility makes it easier to tailor the command line interface to the specific needs of the application.
+2. **Flexible Option Handling**  
+   The library offers versatile option configuration, including:  
+   - Long and short names (e.g., `--verbose` or `-v`)  
+   - Default values for optional inputs  
+   - Required options that enforce user input  
+   - Flags (options without values)  
+   - Multi-value options (e.g., `--file file1 --file file2`)  
+   This flexibility allows you to design a command-line interface tailored to your application’s unique needs.
 
-3. **Intuitive API**: NestedArgs offers a straightforward and fluent API, making it easy to define commands and options in a way that is both readable and maintainable.
+3. **Intuitive API**  
+   With a fluent and readable API, NestedArgs simplifies the process of defining commands and options. The chained method calls (e.g., `.Option().SubCommand()`) produce clean, maintainable code that’s easy to understand and extend.
 
-4. **AOT Compilation Support**: NestedArgs is compatible with Ahead-of-Time compilation, ensuring faster startup times and improved performance for applications that require it. This is particularly beneficial for environments where quick execution is crucial.
+4. **AOT Compilation Support**  
+   NestedArgs fully supports Ahead-of-Time (AOT) compilation, which pre-compiles your application into native code for faster startup times and better performance. This is especially valuable in scenarios like startup scripts or performance-critical environments where eliminating Just-In-Time (JIT) compilation overhead is a priority.
 
-5. **Seamless .NET Integration**: Designed specifically for .NET applications, NestedArgs integrates seamlessly with the .NET ecosystem, leveraging familiar patterns and practices.
+5. **Seamless .NET Integration**  
+   Built with .NET developers in mind, NestedArgs aligns with familiar .NET patterns and practices, ensuring a smooth adoption process. It integrates effortlessly into your existing .NET projects, reducing the learning curve.
 
-6. **Automatic Help Generation**: NestedArgs automatically generates help text for all commands and options, making it easier for end users to understand how to use the application.
+6. **Automatic Help Generation**  
+   NestedArgs generates help text automatically for all commands and options, saving you time and ensuring users have clear, consistent documentation. Just define your structure, and NestedArgs handles the rest.
 
-7. **Customization and Extensibility**: It offers ample opportunities for customization and can be extended to suit specific requirements, providing a balance between out-of-the-box functionality and adaptability.
+7. **Customization and Extensibility**  
+   The library strikes a balance between ready-to-use functionality and adaptability. You can customize option types, add validation logic, or extend behavior to meet specific requirements—all while leveraging a solid foundation.
 
-8. **Lightweight and Efficient**: The library is designed to be lightweight and efficient, minimizing the overhead added to your application.
+8. **Lightweight and Efficient**  
+   Designed to minimize overhead, NestedArgs keeps your application responsive and efficient, even in resource-constrained environments. It’s a lean solution that delivers power without bloat.
 
-In summary, NestedArgs provides a robust, user-friendly, and efficient solution for handling command line arguments in .NET applications, with the added advantage of AOT compilation support, making it an excellent choice for a wide range of use cases.
+In short, NestedArgs is a robust, user-friendly, and high-performance tool for managing command-line arguments in .NET, enhanced by AOT compilation support. It’s an excellent choice for everything from simple utilities to complex, multi-tiered applications.
 
 ## Getting Started
 
 ### Installation
 
-To install NestedArgs, use NuGet package manager:
+Install NestedArgs via NuGet Package Manager:
 
 ```bash
 Install-Package NestedArgs
 ```
 
-or via the .NET CLI:
+Or use the .NET CLI:
 
 ```bash
 dotnet add package NestedArgs
 ```
 
+**Compatibility**: NestedArgs supports .NET 6.0 and later versions.
+
 ### Basic Usage
 
-Here's a simple example to get you started with NestedArgs:
+Here’s an example to demonstrate how to set up a basic command-line interface with NestedArgs, including a subcommand to showcase its hierarchical capabilities:
 
 ```csharp
 using NestedArgs;
@@ -51,19 +67,55 @@ internal class Program
 {
     private static void Main(string[] args)
     {
-        Command rootCommand = new CommandBuilder("myapp", "Description of my app.")
-            .Option(new Option()
+        // Define the root command
+        Command rootCommand = new CommandBuilder("myapp", "A sample application with nested commands.")
+            .Option(new Option
             {
                 LongName = "option1",
                 ShortName = 'o',
-                Description = "A sample option",
+                Description = "A required root-level option",
                 IsRequired = true
             })
-            // Add more options and subcommands as needed
+            .SubCommand(new CommandBuilder("subcmd", "A subcommand for specific tasks.")
+                .Option(new Option
+                {
+                    LongName = "suboption",
+                    ShortName = 's',
+                    Description = "An optional subcommand option",
+                    IsRequired = false
+                })
+                .Build())
             .Build();
 
-        var matches = rootCommand.Parse(args);
-        // Your command handling logic here
+        // Parse the arguments
+        var result = rootCommand.Parse(args);
+
+        // Handle the parsed results
+        if (result.Status == ParseStatus.Success)
+        {
+            var matches = result.Matches;
+            Console.WriteLine($"Root option value: {matches.Value("option1")}");
+            if (matches.SubCommandMatches("subcmd") is CommandMatches subMatches)
+            {
+                Console.WriteLine($"Subcommand option value: {subMatches.Value("suboption") ?? "Not provided"}");
+            }
+        }
+        else
+        {
+            Console.WriteLine("Error parsing arguments. Use --help for usage info.");
+        }
     }
 }
 ```
+
+**Running the Example**:  
+- `myapp --option1 value` triggers the root command with `option1`.  
+- `myapp subcmd --option1 value --suboption subvalue` includes the subcommand and its option.  
+
+### Handling Parsed Arguments
+
+After parsing, the `CommandMatches` object provides access to option values:  
+- `matches.Value("option1")` retrieves the value of `--option1`.  
+- `matches.SubCommandMatches("subcmd")` accesses the subcommand’s matches, allowing you to retrieve `--suboption` or other nested values.  
+
+This structure simplifies handling multi-level command-line inputs in a clear and logical way.
