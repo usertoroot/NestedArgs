@@ -2,52 +2,123 @@ using System.Text;
 
 namespace NestedArgs;
 
-public class Command
+public enum ParseStatus
+{
+    Success,
+    Failure,
+    HelpRequested
+}
+
+public class ParseError
+{
+    public Command Command { get; }
+    public string Message { get; }
+
+    public ParseError(Command command, string message)
+    {
+        Command = command;
+        Message = message;
+    }
+}
+
+public class ParseResult
+{
+    public ParseStatus Status { get; }
+    public CommandMatches? Matches { get; }
+    public ParseError? Error { get; }
+    public Command? HelpCommand { get; }
+
+    private ParseResult(ParseStatus status, CommandMatches? matches = null, ParseError? error = null, Command? helpCommand = null)
+    {
+        Status = status;
+        Matches = matches;
+        Error = error;
+        HelpCommand = helpCommand;
+    }
+
+    public static ParseResult Success(CommandMatches matches) => new ParseResult(ParseStatus.Success, matches: matches);
+    public static ParseResult Failure(ParseError error) => new ParseResult(ParseStatus.Failure, error: error);
+    public static ParseResult HelpRequested(Command command) => new ParseResult(ParseStatus.HelpRequested, helpCommand: command);
+}
+
+public class OptionGroup
 {
     public required string Name { get; set; }
+    public required string Description { get; set; }
+    public GroupConstraint Constraint { get; set; }
+    public List<Option> Options { get; set; } = new List<Option>();
+}
+
+public enum GroupConstraint
+{
+    ExactlyOne,
+    ZeroOrOne,
+    AtLeastOne,
+    Any
+}
+
+public class Command
+{
+    public string Name { get; }
     public string? Description { get; set; }
     public List<Option> Options { get; set; } = new List<Option>();
+    public List<OptionGroup> OptionGroups { get; set; } = new List<OptionGroup>();
     public Dictionary<string, Command> SubCommands { get; set; } = new Dictionary<string, Command>();
     public Command? Parent { get; set; }
 
+    public Command(string name, string? description = null)
+    {
+        Name = name;
+        Description = description;
+
+        Options.Add(new Option
+        {
+            LongName = "help",
+            Description = "Print help information",
+            TakesValue = false
+        });
+    }
+
     public void AddOption(Option option)
     {
-        if (option.LongName == "help")
+        if (Options.Any(v => v.LongName == option.LongName) ||
+            (option.ShortName != null && Options.Any(v => v.ShortName == option.ShortName)))
         {
-            throw new Exception("Name is reserved.");
+            throw new CommandException(this, $"Name '{option.LongName}' ({option.ShortName}) already in use.");
         }
-
-        if (Options.Any(v => v.ShortName == option.ShortName) ||
-            Options.Any(v => v.LongName == option.LongName))
-        {
-            throw new Exception("Name already in use.");
-        }
-            
         Options.Add(option);
     }
 
     public void AddSubCommand(Command subCommand)
     {
+        if (SubCommands.ContainsKey(subCommand.Name))
+        {
+            throw new CommandException(this, $"Subcommand '{subCommand.Name}' already exists.");
+        }
         SubCommands[subCommand.Name] = subCommand;
     }
-    
-    public CommandMatches ParseWithExceptions(string[] args)
-    {
-        return ParseCommand(args, this);
-    }
 
-    public CommandMatches Parse(string[] args)
+    public ParseResult Parse(string[] args)
     {
-        try
+        var res = ParseCommand(args, this);
+        if (res.Status == ParseStatus.Failure)
         {
-            return ParseCommand(args, this);
+            var err = res.Error;
+            if (err != null)
+            {
+                Console.WriteLine($"\u001b[31;1m{err.Message}\u001b[0m");
+                Console.WriteLine();
+                Console.WriteLine(err.Command.GetHelp());
+            }
         }
-        catch (Exception ex)
+        else if (res.Status == ParseStatus.HelpRequested)
         {
-            HandleParsingError(ex);
-            Environment.Exit(1);
-            throw;
+            var cmd = res.HelpCommand;
+            if (cmd != null)
+                Console.WriteLine(cmd.GetHelp());
         }
+
+        return res;
     }
 
     public string GetHelp()
@@ -66,18 +137,57 @@ public class Command
         {
             builder.AppendLine();
             builder.AppendLine("\u001b[32;1mOPTIONS:\u001b[0m");
-            foreach (var option in Options)
+            foreach (var option in Options.Where(opt => opt.GroupName == null))
             {
-                builder.Append($"    \u001b[32m-{option.ShortName}\u001b[0m, \u001b[32m--{option.LongName}\u001b[0m");
-                if (option.IsRequired)
-                    builder.AppendLine(" \u001b[31;1m(required)\u001b[0m");
-                else
-                    builder.AppendLine();
+                builder.Append("    ");
+                if (option.ShortName.HasValue)
+                {
+                    builder.Append($"\u001b[32m-{option.ShortName.Value}\u001b[0m, ");
+                }
+                builder.Append($"\u001b[32m--{option.LongName}\u001b[0m");
+                builder.AppendLine();
 
-                builder.AppendLine($"            \u001b[37m{option.Description}\u001b[0m" + (option.IsRequired ? "" : $" [default: \u001b[36m{option.DefaultValue ?? "none"}\u001b[0m]"));
+                string description = option.Description;
+                if (option.IsRequired)
+                {
+                    description += " \u001b[31;1m(required)\u001b[0m";
+                }
+                else if (option.TakesValue && option.DefaultValue != null)
+                {
+                    description += $" [default: \u001b[36m{option.DefaultValue}\u001b[0m]";
+                }
+                builder.AppendLine($"            \u001b[37m{description}\u001b[0m");
             }
-            builder.AppendLine("        \u001b[32m--help\u001b[0m");
-            builder.AppendLine("            \u001b[37mPrint help information\u001b[0m");
+        }
+
+        if (OptionGroups.Any())
+        {
+            builder.AppendLine();
+            builder.AppendLine("\u001b[35;1mOPTION GROUPS:\u001b[0m");
+            foreach (var group in OptionGroups)
+            {
+                string constraintText = group.Constraint switch
+                {
+                    GroupConstraint.ExactlyOne => "choose exactly one",
+                    GroupConstraint.ZeroOrOne => "choose zero or one",
+                    GroupConstraint.AtLeastOne => "choose at least one",
+                    GroupConstraint.Any => "choose any number",
+                    _ => "unknown constraint"
+                };
+                builder.AppendLine($"    \u001b[35m{group.Name.ToUpper()} ({constraintText}):\u001b[0m");
+                builder.AppendLine($"    \u001b[37m{group.Description}\u001b[0m");
+                foreach (var option in group.Options)
+                {
+                    builder.Append("        ");
+                    if (option.ShortName.HasValue)
+                    {
+                        builder.Append($"\u001b[32m-{option.ShortName.Value}\u001b[0m, ");
+                    }
+                    builder.Append($"\u001b[32m--{option.LongName}\u001b[0m");
+                    builder.AppendLine();
+                    builder.AppendLine($"                \u001b[37m{option.Description}\u001b[0m");
+                }
+            }
         }
 
         if (SubCommands.Any())
@@ -91,7 +201,7 @@ public class Command
 
         return builder.ToString();
     }
-    
+
     public void HandleParsingError(Exception ex)
     {
         var builder = new StringBuilder();
@@ -144,96 +254,206 @@ public class Command
             path.Push(current.Name);
             current = current.Parent;
         }
-        return string.Join(" \u279C ", path);
+        return string.Join(" > ", path);
     }
-    
-    internal static CommandMatches ParseCommand(string[] args, Command command)
+
+    internal static ParseResult ParseCommand(string[] args, Command command)
     {
         var matches = new CommandMatches(command);
+        int index = 0;
 
-        for (int index = 0; index < args.Length; index++)
+        while (index < args.Length && args[index].StartsWith("-"))
         {
             string arg = args[index];
-
-            if (!arg.StartsWith("-"))
+            if (arg.StartsWith("--"))
             {
-                if (command.SubCommands.TryGetValue(arg, out var subCommand))
+                string? optionName;
+                string? value = null;
+                int equalIndex = arg.IndexOf('=');
+                if (equalIndex != -1)
                 {
-                    matches.SubCommandMatch = ParseCommand(args.Skip(index + 1).ToArray(), subCommand);
-                    break;
+                    optionName = arg.Substring(2, equalIndex - 2);
+                    value = arg.Substring(equalIndex + 1);
                 }
-
-                string? suggestedSubCommand = StringExtensions.FuzzyMatch(arg, command.SubCommands.Keys);
-                string additionalMessage = suggestedSubCommand != null ? $"\n\n\u001b[33;1mDid you mean '{suggestedSubCommand}'?\u001b[0m" : "";
-                throw new CommandException(command, $"The subcommand '\u001b[31m{arg}\u001b[0m' wasn't recognized.{additionalMessage}");
-            }
-
-            if (arg == "--help")
-            {
-                Console.Write(command.GetHelp());
-                Environment.Exit(1);
-            }
-
-            string? optionName = null;
-            string? value = null;
-            bool isShortOption = arg.StartsWith("-") && !arg.StartsWith("--");
-            Option? relevantOption = null;
-
-            if (isShortOption)
-            {
-                optionName = arg.Substring(1, 1);
-                value = arg.Length > 2 ? arg.Substring(2).TrimStart('=') : null;
-                relevantOption = command.Options.FirstOrDefault(opt => opt.ShortName.ToString() == optionName);
-            }
-            else
-            {
-                var equalIndex = arg.IndexOf('=');
-                optionName = equalIndex != -1 ? arg.Substring(2, equalIndex - 2) : arg.Substring(2);
-                value = equalIndex != -1 ? arg.Substring(equalIndex + 1) : null;
-                relevantOption = command.Options.FirstOrDefault(opt => opt.LongName == optionName);
-            }
-
-            if (relevantOption == null)
-            {
-                string? suggestedOption = StringExtensions.FuzzyMatch(optionName, command.Options.Select(o => o.LongName));
-                string additionalMessage = suggestedOption != null ? $"\n\n\u001b[33;1mDid you mean '{suggestedOption}'?\u001b[0m" : "";
-                throw new CommandException(command, $"Found argument '\u001b[31m{arg}\u001b[0m' which wasn't expected, or isn't valid in this context.{additionalMessage}");
-            }
-
-            if (value == null && relevantOption.TakesValue)
-            {
-                if (index + 1 < args.Length)
-                    value = args[++index];
                 else
-                    throw new CommandException(command, $"The following argument requires a value:\n\u001b[31m{arg}\u001b[0m");
-            }
-
-            if (value == null && relevantOption.DefaultValue != null)
-                value = relevantOption.DefaultValue;
-
-            if (matches.OptionValues.TryGetValue(relevantOption.LongName, out var values))
-            {
-                if (!relevantOption.AllowMultiple)
-                    throw new CommandException(command, $"The argument '\u001b[31m--{relevantOption.LongName}\u001b[0m' was provided more than once and does not allow multiple.");
-
-                if (value != null)
-                    values.Add(value);
+                {
+                    optionName = arg.Substring(2);
+                }
+                var relevantOption = command.Options.FirstOrDefault(opt => opt.LongName == optionName);
+                if (relevantOption == null)
+                {
+                    string? suggestedOption = StringExtensions.FuzzyMatch(optionName, command.Options.Select(o => o.LongName));
+                    string additionalMessage = suggestedOption != null ? $"\n\n\u001b[33;1mDid you mean '{suggestedOption}'?\u001b[0m" : "";
+                    return ParseResult.Failure(new ParseError(command, $"Found argument '{arg}' which wasn't expected, or isn't valid in this context.{additionalMessage}"));
+                }
+                if (relevantOption.TakesValue)
+                {
+                    if (value == null)
+                    {
+                        if (index + 1 < args.Length)
+                        {
+                            value = args[++index];
+                        }
+                        else
+                        {
+                            return ParseResult.Failure(new ParseError(command, $"The following argument requires a value: {arg}"));
+                        }
+                    }
+                }
+                else
+                {
+                    if (value != null)
+                    {
+                        return ParseResult.Failure(new ParseError(command, $"Option --{relevantOption.LongName} does not take a value, but one was provided."));
+                    }
+                }
+                if (matches.OptionValues.ContainsKey(relevantOption.LongName))
+                {
+                    if (!relevantOption.AllowMultiple)
+                    {
+                        return ParseResult.Failure(new ParseError(command, $"The argument '--{relevantOption.LongName}' was provided more than once and does not allow multiple values."));
+                    }
+                    if (value != null)
+                    {
+                        matches.OptionValues[relevantOption.LongName].Add(value);
+                    }
+                }
+                else
+                {
+                    matches.OptionValues[relevantOption.LongName] = value != null ? new List<string> { value } : new List<string>();
+                }
             }
             else
-                matches.OptionValues[relevantOption.LongName] = value != null ? new List<string>() { value } : new List<string>();
+            {
+                int charIndex = 1;
+                if (arg.Length < 2)
+                {
+                    return ParseResult.Failure(new ParseError(command, $"Invalid short option: {arg}"));
+                }
+                while (charIndex < arg.Length)
+                {
+                    char shortName = arg[charIndex];
+                    var relevantOption = command.Options.FirstOrDefault(opt => opt.ShortName == shortName);
+                    if (relevantOption == null)
+                    {
+                        string? suggestedOption = StringExtensions.FuzzyMatch(shortName.ToString(), command.Options.Where(o => o.ShortName != null).Select(o => o.ShortName?.ToString()!));
+                        string additionalMessage = suggestedOption != null ? $"\n\n\u001b[33;1mDid you mean '-{suggestedOption}'?\u001b[0m" : "";
+                        return ParseResult.Failure(new ParseError(command, $"Unknown short option '-{shortName}' in '{arg}'.{additionalMessage}"));
+                    }
+                    if (relevantOption.TakesValue)
+                    {
+                        string? value = null;
+                        if (charIndex + 1 < arg.Length)
+                        {
+                            value = arg.Substring(charIndex + 1);
+                            if (value.StartsWith("="))
+                                value = value.Substring(1);
+                            charIndex = arg.Length;
+                        }
+                        else if (index + 1 < args.Length)
+                        {
+                            value = args[++index];
+                            if (value.StartsWith("="))
+                                value = value.Substring(1);
+                            charIndex = arg.Length;
+                        }
+                        else
+                        {
+                            return ParseResult.Failure(new ParseError(command, $"Option -{shortName} requires a value."));
+                        }
+                        if (matches.OptionValues.ContainsKey(relevantOption.LongName))
+                        {
+                            if (!relevantOption.AllowMultiple)
+                            {
+                                return ParseResult.Failure(new ParseError(command, $"Option -{shortName} does not allow multiple values."));
+                            }
+                            matches.OptionValues[relevantOption.LongName].Add(value);
+                        }
+                        else
+                        {
+                            matches.OptionValues[relevantOption.LongName] = new List<string> { value };
+                        }
+                    }
+                    else
+                    {
+                        if (matches.OptionValues.ContainsKey(relevantOption.LongName))
+                        {
+                            if (!relevantOption.AllowMultiple)
+                            {
+                                return ParseResult.Failure(new ParseError(command, $"Option -{shortName} does not allow multiple occurrences."));
+                            }
+                        }
+                        else
+                        {
+                            matches.OptionValues[relevantOption.LongName] = new List<string>();
+                        }
+                        charIndex++;
+                    }
+                }
+            }
+
+            index++;
+        }
+
+        if (matches.OptionValues.ContainsKey("help"))
+            return ParseResult.HelpRequested(command);
+
+        if (index < args.Length)
+        {
+            string subCommandName = args[index];
+            if (command.SubCommands.TryGetValue(subCommandName, out var subCommand))
+            {
+                var subResult = ParseCommand(args.Skip(index + 1).ToArray(), subCommand);
+                if (subResult.Status == ParseStatus.HelpRequested || subResult.Status == ParseStatus.Failure)
+                    return subResult;
+                matches.SubCommandMatch = subResult.Matches;
+            }
+            else
+            {
+                string? suggestedSubCommand = StringExtensions.FuzzyMatch(subCommandName, command.SubCommands.Keys);
+                string additionalMessage = suggestedSubCommand != null ? $"\n\nDid you mean '{suggestedSubCommand}'?" : "";
+                return ParseResult.Failure(new ParseError(command, $"The subcommand '{subCommandName}' wasn't recognized.{additionalMessage}"));
+            }
         }
 
         var missingRequiredOptions = command.Options
-            .Where(option => option.IsRequired && !matches.OptionValues.ContainsKey(option.LongName))
-            .Select(option => $"    --{option.LongName} <{option.LongName.ToUpper()}>")
-            .ToList();
-
+                .Where(option => option.IsRequired &&
+                                 !matches.OptionValues.ContainsKey(option.LongName) &&
+                                 option.DefaultValue == null)
+                .Select(option => $"    --{option.LongName} <{option.LongName.ToUpper()}>")
+                .ToList();
         if (missingRequiredOptions.Any())
         {
             var missingOptionsMessage = string.Join(Environment.NewLine, missingRequiredOptions);
-            throw new CommandException(command, $"The following required arguments were not provided:\n\u001b[31m{missingOptionsMessage}\u001b[0m");
+            return ParseResult.Failure(new ParseError(command, $"The following required arguments were not provided:\n{missingOptionsMessage}"));
         }
 
-        return matches;
+        foreach (var group in command.OptionGroups)
+        {
+            var providedOptions = group.Options.Count(opt => matches.OptionValues.ContainsKey(opt.LongName));
+            bool valid = group.Constraint switch
+            {
+                GroupConstraint.ExactlyOne => providedOptions == 1,
+                GroupConstraint.ZeroOrOne => providedOptions <= 1,
+                GroupConstraint.AtLeastOne => providedOptions >= 1,
+                GroupConstraint.Any => true,
+                _ => false
+            };
+            if (!valid)
+            {
+                var groupOptions = string.Join(", ", group.Options.Select(opt => $"--{opt.LongName}"));
+                string message = group.Constraint switch
+                {
+                    GroupConstraint.ExactlyOne => $"Exactly one of the following options must be provided: {groupOptions}",
+                    GroupConstraint.ZeroOrOne => $"At most one of the following options can be provided: {groupOptions}",
+                    GroupConstraint.AtLeastOne => $"At least one of the following options must be provided: {groupOptions}",
+                    GroupConstraint.Any => "",
+                    _ => "Invalid group constraint"
+                };
+                return ParseResult.Failure(new ParseError(command, message));
+            }
+        }
+
+        return ParseResult.Success(matches);
     }
 }

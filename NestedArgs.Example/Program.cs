@@ -35,27 +35,26 @@ internal class Program
                     Description = "Mime type (e.g., video/mp4)",
                     IsRequired = true
                 })
-                .Option(new Option()
-                {
-                    LongName = "file",
-                    ShortName = 'f',
-                    Description = "File content to play",
-                    IsRequired = false
-                })
-                .Option(new Option()
-                {
-                    LongName = "url",
-                    ShortName = 'u',
-                    Description = "URL to the content",
-                    IsRequired = false
-                })
-                .Option(new Option()
-                {
-                    LongName = "content",
-                    ShortName = 'c',
-                    Description = "The actual content",
-                    IsRequired = false
-                })
+                .OptionGroup("source", "Choose the media source", GroupConstraint.ExactlyOne, group => group
+                    .Option(new Option()
+                    {
+                        LongName = "file",
+                        ShortName = 'f',
+                        Description = "File content to play",
+                    })
+                    .Option(new Option()
+                    {
+                        LongName = "url",
+                        ShortName = 'u',
+                        Description = "URL to the content"
+                    })
+                    .Option(new Option()
+                    {
+                        LongName = "content",
+                        ShortName = 'c',
+                        Description = "The actual content"
+                    })
+                )
                 .Option(new Option()
                 {
                     LongName = "timestamp",
@@ -106,7 +105,11 @@ internal class Program
                 .Build())
             .Build();
 
-        var matches = rootCommand.Parse(args);
+        var result = rootCommand.Parse(args)!;
+        var matches = result.Matches;
+        if (matches == null)
+            return;
+
         Console.WriteLine(matches);
 
         var host = matches.Value("host");

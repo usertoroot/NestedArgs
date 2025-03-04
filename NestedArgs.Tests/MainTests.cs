@@ -1,402 +1,388 @@
-namespace NestedArgs.Tests;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+using NestedArgs;
+using System;
+using System.Collections.Generic;
+using System.Linq;
 
-[TestClass]
-public class MainTests
+namespace NestedArgs.Tests
 {
-    private Command _someRoot = new CommandBuilder("someroot", "description").Option(new Option
+    [TestClass]
+    public class MainTests
     {
-        Description = "Some option",
-        LongName = "someOption",
-        ShortName = 's'
-    }).Build();
+        #region Parsing Options
 
-    private Command _rootCommand = new CommandBuilder("fcast", "Control FCast Receiver through the terminal.")
-        .Option(new Option()
+        [TestMethod]
+        public void TestParsingOptions()
         {
-            LongName = "connection_type",
-            ShortName = 'c',
-            Description = "Type of connection: tcp or ws (websocket)",
-            DefaultValue = "tcp"
-        })
-        .Option(new Option()
-        {
-            LongName = "host",
-            ShortName = 'h',
-            Description = "The host address to send the command to",
-            IsRequired = true
-        })
-        .Option(new Option()
-        {
-            LongName = "port",
-            ShortName = 'p',
-            Description = "The port to send the command to",
-        })
-        .Option(new Option()
-        {
-            LongName = "dummy",
-            ShortName = 'd',
-            Description = "Dummy array test",
-            AllowMultiple = true
-        })
-        .Option(new Option()
-        {
-            LongName = "encrypted",
-            ShortName = 'e',
-            Description = "Use encryption",
-            TakesValue = false
-        })
-        .SubCommand(new CommandBuilder("play", "Play media")
-            .Option(new Option()
-            {
-                LongName = "mime_type",
-                ShortName = 'm',
-                Description = "Mime type (e.g., video/mp4)",
-                IsRequired = true
-            })
-            .Option(new Option()
-            {
-                LongName = "file",
-                ShortName = 'f',
-                Description = "File content to play"
-            })
-            .Option(new Option()
-            {
-                LongName = "url",
-                ShortName = 'u',
-                Description = "URL to the content"
-            })
-            .Option(new Option()
-            {
-                LongName = "content",
-                ShortName = 'c',
-                Description = "The actual content"
-            })
-            .Option(new Option()
-            {
-                LongName = "timestamp",
-                ShortName = 't',
-                Description = "Timestamp to start playing",
-                DefaultValue = "0"
-            })
-            .Option(new Option()
-            {
-                LongName = "speed",
-                ShortName = 's',
-                Description = "Factor to multiply playback speed by",
-                DefaultValue = "1"
-            })
-            .Build())
-        .SubCommand(new CommandBuilder("seek", "Seek to a timestamp")
-            .Option(new Option()
-            {
-                LongName = "timestamp",
-                ShortName = 't',
-                Description = "Timestamp to start playing",
-                IsRequired = true
-            })
-            .Build())
-        .SubCommand(new CommandBuilder("pause", "Pause media").Build())
-        .SubCommand(new CommandBuilder("resume", "Resume media").Build())
-        .SubCommand(new CommandBuilder("stop", "Stop media").Build())
-        .SubCommand(new CommandBuilder("listen", "Listen to incoming events").Build())
-        .SubCommand(new CommandBuilder("setvolume", "Set the volume")
-            .Option(new Option()
-            {
-                LongName = "volume",
-                ShortName = 'v',
-                Description = "Volume level (0-1)",
-                IsRequired = true
-            })
-            .Build())
-        .SubCommand(new CommandBuilder("setspeed", "Set the playback speed")
-            .Option(new Option()
-            {
-                LongName = "speed",
-                ShortName = 's',
-                Description = "Factor to multiply playback speed by",
-                IsRequired = true
-            })
-            .Build())
-        .Build();
+            var cmd = new CommandBuilder("test")
+                .Option(new Option { LongName = "host", ShortName = 'h', Description = "Host", TakesValue = true })
+                .Option(new Option { LongName = "encrypted", ShortName = 'e', Description = "Encrypted", TakesValue = false })
+                .Option(new Option { LongName = "dummy", ShortName = 'd', Description = "Dummy", TakesValue = true, AllowMultiple = true })
+                .Build();
 
-    private static IEnumerable<object[]> TestShouldExcept_TestData() 
-    {
-        yield return new[] { new string[] { "-host127.0.0.1", "Argument after long name without space should not be supported" } };
-        yield return new[] { new string[] { } };
-        yield return new[] { new string[] { "--host" } };
-    }
-    [TestMethod]
-    [DynamicData(nameof(TestShouldExcept_TestData), DynamicDataSourceType.Method)]
-    public void TestShouldExcept(string[] args)
-    {
-        Assert.ThrowsException<CommandException>(() =>
-        {
-            _rootCommand.ParseWithExceptions(args);
-        });
-    }
+            // Long option with space
+            var result1 = cmd.Parse(new[] { "--host", "127.0.0.1" })!;
+            Assert.AreEqual(ParseStatus.Success, result1.Status);
+            Assert.AreEqual("127.0.0.1", result1.Matches!.Value("host"));
 
-    private static IEnumerable<object[]> TestMatchPositive_TestData() 
-    {
-        yield return new object[] 
-        { 
-            new string[] { "-h127.0.0.1" }, 
-            new (string, string[]?)[] { ("host", new[] { "127.0.0.1" }) } 
-        };
-        yield return new object[] 
-        { 
-            new string[] { "-h", "127.0.0.1" }, 
-            new (string, string[]?)[] { ("host", new[] { "127.0.0.1" }) } 
-        };
-        yield return new object[] 
-        { 
-            new string[] { "-h=127.0.0.1" }, 
-            new (string, string[]?)[] { ("host", new[] { "127.0.0.1" }) } 
-        };
-        yield return new object[] 
-        { 
-            new string[] { "--host=127.0.0.1" }, 
-            new (string, string[]?)[] { ("host", new[] { "127.0.0.1" }) } 
-        };
-        yield return new object[] 
-        { 
-            new string[] { "--host", "127.0.0.1" }, 
-            new (string, string[]?)[] { ("host", new[] { "127.0.0.1" }) } 
-        };
-        yield return new object[] 
-        { 
-            new string[] { "--host", "127.0.0.1", "-e" }, 
-            new (string, string[]?)[] { ("host", new[] { "127.0.0.1" }), ("encrypted", null) } 
-        };
-        yield return new object[] 
-        { 
-            new string[] { "--host", "127.0.0.1", "-e", "-da=a", "-d=b=b", "-d", "c=c", "--dummy", "d=d", "--dummy=e=e" },
-            new (string, string[]?)[] { ("host", new[] { "127.0.0.1" }), ("encrypted", null), ("dummy", new[] { "a=a", "b=b", "c=c", "d=d", "e=e" }) } 
-        };
-        yield return new object[] 
-        { 
-            new string[] { "--host", "127.0.0.1", "-e", "-da=a" },
-            new (string, string[]?)[] { ("host", new[] { "127.0.0.1" }), ("encrypted", null), ("dummy", new[] { "a=a" }) } 
-        };
-    }
-    [TestMethod]
-    [DynamicData(nameof(TestMatchPositive_TestData), DynamicDataSourceType.Method)]
-    public void TestMatchPositive(string[] args, (string Name, string[]? Expected)[] expected)
-    {
-        var matches = _rootCommand.Parse(args);
-        foreach (var e in expected)
-        {
-            Assert.IsTrue(matches.Has(e.Name));
+            // Long option with equals
+            var result2 = cmd.Parse(new[] { "--host=127.0.0.1" })!;
+            Assert.AreEqual(ParseStatus.Success, result2.Status);
+            Assert.AreEqual("127.0.0.1", result2.Matches!.Value("host"));
 
-            var option = _rootCommand.Options.First(o => o.LongName == e.Name);
-            if (option.TakesValue)
+            // Short option with space
+            var result3 = cmd.Parse(new[] { "-h", "127.0.0.1" })!;
+            Assert.AreEqual(ParseStatus.Success, result3.Status);
+            Assert.AreEqual("127.0.0.1", result3.Matches!.Value("host"));
+
+            // Short option with equals
+            var result4 = cmd.Parse(new[] { "-h=127.0.0.1" })!;
+            Assert.AreEqual(ParseStatus.Success, result4.Status);
+            Assert.AreEqual("127.0.0.1", result4.Matches!.Value("host"));
+
+            // Flag option long
+            var result5 = cmd.Parse(new[] { "--encrypted" })!;
+            Assert.AreEqual(ParseStatus.Success, result5.Status);
+            Assert.IsTrue(result5.Matches!.Has("encrypted"));
+
+            // Flag option short
+            var result6 = cmd.Parse(new[] { "-e" })!;
+            Assert.AreEqual(ParseStatus.Success, result6.Status);
+            Assert.IsTrue(result6.Matches!.Has("encrypted"));
+
+            // Multiple values with long option
+            var result7 = cmd.Parse(new[] { "--dummy", "a", "--dummy", "b" })!;
+            Assert.AreEqual(ParseStatus.Success, result7.Status);
+            CollectionAssert.AreEqual(new[] { "a", "b" }, result7.Matches!.Values("dummy"));
+
+            // Multiple values with short option
+            var result8 = cmd.Parse(new[] { "-d", "a", "-d", "b" })!;
+            Assert.AreEqual(ParseStatus.Success, result8.Status);
+            CollectionAssert.AreEqual(new[] { "a", "b" }, result8.Matches!.Values("dummy"));
+        }
+
+        #endregion
+
+        #region Required Options and Defaults
+
+        [TestMethod]
+        public void TestRequiredOptionsAndDefaults()
+        {
+            var cmd = new CommandBuilder("test")
+                .Option(new Option { LongName = "host", Description = "Host", IsRequired = true })
+                .Option(new Option { LongName = "port", Description = "Port", DefaultValue = "80" })
+                .Build();
+
+            // Required option provided
+            var result1 = cmd.Parse(new[] { "--host", "127.0.0.1" })!;
+            Assert.AreEqual(ParseStatus.Success, result1.Status);
+            Assert.AreEqual("127.0.0.1", result1.Matches!.Value("host"));
+            Assert.AreEqual("80", result1.Matches!.Value("port"));
+
+            // Required option missing
+            var result2 = cmd.Parse(new string[0])!;
+            Assert.AreEqual(ParseStatus.Failure, result2.Status);
+            Assert.IsTrue(result2.Error!.Message.Contains("host"));
+
+            // Override default
+            var result3 = cmd.Parse(new[] { "--host", "127.0.0.1", "--port", "8080" })!;
+            Assert.AreEqual(ParseStatus.Success, result3.Status);
+            Assert.AreEqual("8080", result3.Matches!.Value("port"));
+
+            // Default with empty value
+            var result4 = cmd.Parse(new[] { "--host", "127.0.0.1", "--port", "" })!;
+            Assert.AreEqual(ParseStatus.Success, result4.Status);
+            Assert.AreEqual("", result4.Matches!.Value("port"));
+        }
+
+        #endregion
+
+        #region Subcommands
+
+        [TestMethod]
+        public void TestSubcommands()
+        {
+            var cmd = new CommandBuilder("test")
+                .Option(new Option { LongName = "host", Description = "Host", IsRequired = true })
+                .SubCommand(new CommandBuilder("play")
+                    .Option(new Option { LongName = "url", Description = "URL", IsRequired = true })
+                    .Build())
+                .Build();
+
+            // Basic subcommand parsing
+            var result1 = cmd.Parse(new[] { "--host", "127.0.0.1", "play", "--url", "http://example.com" })!;
+            Assert.AreEqual(ParseStatus.Success, result1.Status);
+            Assert.AreEqual("127.0.0.1", result1.Matches!.Value("host"));
+            var playMatches = result1.Matches!.SubCommandMatches("play");
+            Assert.IsNotNull(playMatches);
+            Assert.AreEqual("http://example.com", playMatches.Value("url"));
+
+            // Subcommand with missing required option
+            var result2 = cmd.Parse(new[] { "--host", "127.0.0.1", "play" })!;
+            Assert.AreEqual(ParseStatus.Failure, result2.Status);
+            Assert.IsTrue(result2.Error!.Message.Contains("url"));
+        }
+
+        #endregion
+
+        #region Option Groups
+
+        [TestMethod]
+        public void TestOptionGroups_ExactlyOne()
+        {
+            var cmd = new CommandBuilder("test")
+                .Option(new Option { LongName = "host", Description = "Host", IsRequired = true })
+                .OptionGroup("source", "Media source", GroupConstraint.ExactlyOne, g => g
+                    .Option(new Option { LongName = "file", Description = "File" })
+                    .Option(new Option { LongName = "url", Description = "URL" }))
+                .Build();
+
+            // Zero options
+            var result1 = cmd.Parse(new[] { "--host", "127.0.0.1" })!;
+            Assert.AreEqual(ParseStatus.Failure, result1.Status);
+            Assert.IsTrue(result1.Error!.Message.Contains("Exactly one"));
+
+            // One option
+            var result2 = cmd.Parse(new[] { "--host", "127.0.0.1", "--file", "a.txt" })!;
+            Assert.AreEqual(ParseStatus.Success, result2.Status);
+            Assert.AreEqual("a.txt", result2.Matches!.Value("file"));
+
+            // Two options
+            var result3 = cmd.Parse(new[] { "--host", "127.0.0.1", "--file", "a.txt", "--url", "http://x" })!;
+            Assert.AreEqual(ParseStatus.Failure, result3.Status);
+            Assert.IsTrue(result3.Error!.Message.Contains("Exactly one"));
+        }
+
+        [TestMethod]
+        public void TestOptionGroupConstraints()
+        {
+            // Option with IsRequired in group
+            try
             {
-                if (option.AllowMultiple)
-                    CollectionAssert.AreEquivalent(e.Expected, matches.Values(e.Name));
-                else
-                    Assert.AreEqual(e.Expected![0], matches.Value(e.Name));
+                new CommandBuilder("test")
+                    .OptionGroup("source", "Source", GroupConstraint.ExactlyOne, g => g
+                        .Option(new Option { LongName = "file", Description = "File", IsRequired = true }))
+                    .Build();
+                Assert.Fail("Expected CommandException for required option in group");
+            }
+            catch (CommandException ex)
+            {
+                Assert.IsTrue(ex.Message.Contains("cannot have IsRequired"));
+            }
+
+            // Option with DefaultValue in group
+            try
+            {
+                new CommandBuilder("test")
+                    .OptionGroup("source", "Source", GroupConstraint.ExactlyOne, g => g
+                        .Option(new Option { LongName = "file", Description = "File", DefaultValue = "default" }))
+                    .Build();
+                Assert.Fail("Expected CommandException for default value in group");
+            }
+            catch (CommandException ex)
+            {
+                Assert.IsTrue(ex.Message.Contains("cannot have IsRequired"));
             }
         }
-    }
 
-    [TestMethod]
-    public void TestPlaySubcommand()
-    {
-        var matches = _rootCommand.Parse(new string[] { "-h", "localhost", "play", "--mime_type", "video/mp4", "--url", "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4", "-t", "10", "-s", "1.0" });
-        Assert.AreEqual("localhost", matches.Value("host"));
-        Assert.AreEqual("tcp", matches.Value("connection_type"));
+        #endregion
 
-        var playMatches = matches.SubCommandMatches("play")!;
-        Assert.AreEqual("video/mp4", playMatches.Value("mime_type"));
-        Assert.AreEqual("http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4", playMatches.Value("url"));
-        Assert.AreEqual("10", playMatches.Value("timestamp"));
-        Assert.AreEqual("1.0", playMatches.Value("speed"));
-    }
+        #region Help Functionality
 
-    [TestMethod]
-    public void TestPlayWithWebSocket()
-    {
-        var matches = _rootCommand.Parse(new string[] { "-h", "localhost", "-c", "ws", "play", "--mime_type", "video/mp4", "--url", "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4", "-t", "10" });
-        Assert.AreEqual("localhost", matches.Value("host"));
-        Assert.AreEqual("ws", matches.Value("connection_type"));
+        [TestMethod]
+        public void TestHelpFunctionality()
+        {
+            var cmd = new CommandBuilder("test")
+                .Option(new Option { LongName = "host", Description = "Host" })
+                .SubCommand(new CommandBuilder("play")
+                    .Option(new Option { LongName = "url", Description = "URL" })
+                    .Build())
+                .Build();
 
-        var playMatches = matches.SubCommandMatches("play")!;
-        Assert.AreEqual("video/mp4", playMatches.Value("mime_type"));
-        Assert.AreEqual("http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4", playMatches.Value("url"));
-        Assert.AreEqual("10", playMatches.Value("timestamp"));
-    }
+            // Root-level help
+            var result1 = cmd.Parse(new[] { "--help" })!;
+            Assert.AreEqual(ParseStatus.HelpRequested, result1.Status);
+            Assert.AreEqual(cmd, result1.HelpCommand);
 
-    [TestMethod]
-    public void TestPlayWithFile()
-    {
-        var matches = _rootCommand.Parse(new string[] { "-h", "192.168.1.62", "play", "--mime_type", "video/mp4", "-f", "/home/koen/Downloads/BigBuckBunny.mp4" });
-        Assert.AreEqual("192.168.1.62", matches.Value("host"));
+            // Subcommand help
+            var result2 = cmd.Parse(new[] { "play", "--help" })!;
+            Assert.AreEqual(ParseStatus.HelpRequested, result2.Status);
+            Assert.AreEqual(cmd.SubCommands["play"], result2.HelpCommand);
+        }
 
-        var playMatches = matches.SubCommandMatches("play")!;
-        Assert.AreEqual("video/mp4", playMatches.Value("mime_type"));
-        Assert.AreEqual("/home/koen/Downloads/BigBuckBunny.mp4", playMatches.Value("file"));
-    }
+        #endregion
 
-    [TestMethod]
-    public void TestPlayWithDASH()
-    {
-        var matches = _rootCommand.Parse(new string[] { "-h", "localhost", "play", "--mime_type", "application/dash+xml", "--url", "https://dash.akamaized.net/digitalprimates/fraunhofer/480p_video/heaac_2_0_with_video/Sintel/sintel_480p_heaac2_0.mpd" });
-        Assert.AreEqual("localhost", matches.Value("host"));
+        #region Type Conversions
 
-        var playMatches = matches.SubCommandMatches("play")!;
-        Assert.AreEqual("application/dash+xml", playMatches.Value("mime_type"));
-        Assert.AreEqual("https://dash.akamaized.net/digitalprimates/fraunhofer/480p_video/heaac_2_0_with_video/Sintel/sintel_480p_heaac2_0.mpd", playMatches.Value("url"));
-    }
+        [TestMethod]
+        public void TestTypeConversions()
+        {
+            var cmd = new CommandBuilder("test")
+                .Option(new Option { LongName = "num", Description = "Number", TakesValue = true })
+                .Option(new Option { LongName = "date", Description = "Date", TakesValue = true })
+                .Build();
 
-    [TestMethod]
-    public void TestPauseSubcommand()
-    {
-        var matches = _rootCommand.Parse(new string[] { "-h", "localhost", "pause" });
-        Assert.AreEqual("localhost", matches.Value("host"));
-        Assert.IsNotNull(matches.SubCommandMatches("pause"));
-    }
+            // Valid conversions
+            var result1 = cmd.Parse(new[] { "--num", "42", "--date", "2023-01-01" })!;
+            Assert.AreEqual(ParseStatus.Success, result1.Status);
+            Assert.AreEqual(42, result1.Matches!.ValueAsInt32("num"));
+            Assert.AreEqual(42.0, result1.Matches!.ValueAsDouble("num"));
+            Assert.AreEqual(new DateTime(2023, 1, 1), result1.Matches!.ValueAsDateTime("date"));
 
-    [TestMethod]
-    public void TestResumeSubcommand()
-    {
-        var matches = _rootCommand.Parse(new string[] { "-h", "localhost", "resume" });
-        Assert.AreEqual("localhost", matches.Value("host"));
-        Assert.IsNotNull(matches.SubCommandMatches("resume"));
-    }
+            // Invalid conversion
+            var result2 = cmd.Parse(new[] { "--num", "abc" })!;
+            Assert.AreEqual(ParseStatus.Success, result2.Status);
+            Assert.IsNull(result2.Matches!.ValueAsInt32("num"));
+        }
 
-    [TestMethod]
-    public void TestSeekSubcommand()
-    {
-        var matches = _rootCommand.Parse(new string[] { "-h", "localhost", "seek", "-t", "100" });
-        Assert.AreEqual("localhost", matches.Value("host"));
+        #endregion
 
-        var seekMatches = matches.SubCommandMatches("seek")!;
-        Assert.AreEqual("100", seekMatches.Value("timestamp"));
-    }
+        #region Error Handling
 
-    [TestMethod]
-    public void TestListenSubcommand()
-    {
-        var matches = _rootCommand.Parse(new string[] { "-h", "localhost", "listen" });
-        Assert.AreEqual("localhost", matches.Value("host"));
-        Assert.IsNotNull(matches.SubCommandMatches("listen"));
-    }
+        [TestMethod]
+        public void TestErrorHandling()
+        {
+            var cmd = new CommandBuilder("test")
+                .Option(new Option { LongName = "host", Description = "Host", IsRequired = true })
+                .Option(new Option { LongName = "flag", Description = "Flag", TakesValue = false })
+                .Option(new Option { LongName = "opt", Description = "Opt", TakesValue = true, AllowMultiple = false })
+                .Build();
 
-    [TestMethod]
-    public void TestStopSubcommand()
-    {
-        var matches = _rootCommand.Parse(new string[] { "-h", "localhost", "stop" });
-        Assert.AreEqual("localhost", matches.Value("host"));
-        Assert.IsNotNull(matches.SubCommandMatches("stop"));
-    }
+            // Missing required option
+            var result1 = cmd.Parse(new string[0])!;
+            Assert.AreEqual(ParseStatus.Failure, result1.Status);
+            Assert.IsTrue(result1.Error!.Message.Contains("host"));
 
-    [TestMethod]
-    public void TestSetVolumeSubcommand()
-    {
-        var matches = _rootCommand.Parse(new string[] { "-h", "localhost", "setvolume", "-v", "0.5" });
-        Assert.AreEqual("localhost", matches.Value("host"));
+            // Unknown option
+            var result2 = cmd.Parse(new[] { "--unknown" })!;
+            Assert.AreEqual(ParseStatus.Failure, result2.Status);
+            Assert.IsTrue(result2.Error!.Message.Contains("unknown"));
 
-        var setVolumeMatches = matches.SubCommandMatches("setvolume")!;
-        Assert.AreEqual("0.5", setVolumeMatches.Value("volume"));
-    }
+            // Value provided to flag
+            var result3 = cmd.Parse(new[] { "--flag=value" })!;
+            Assert.AreEqual(ParseStatus.Failure, result3.Status);
+            Assert.IsTrue(result3.Error!.Message.Contains("does not take a value"));
 
-    [TestMethod]
-    public void TestSetSpeedSubcommand()
-    {
-        var matches = _rootCommand.Parse(new string[] { "-h", "localhost", "setspeed", "-s", "2.0" });
-        Assert.AreEqual("localhost", matches.Value("host"));
+            // Multiple occurrences when not allowed
+            var result4 = cmd.Parse(new[] { "--opt", "a", "--opt", "b" })!;
+            Assert.AreEqual(ParseStatus.Failure, result4.Status);
+            Assert.IsTrue(result4.Error!.Message.Contains("provided more than once"));
+        }
 
-        var setSpeedMatches = matches.SubCommandMatches("setspeed")!;
-        Assert.AreEqual("2.0", setSpeedMatches.Value("speed"));
-    }
+        [TestMethod]
+        public void TestFuzzyMatching()
+        {
+            var cmd = new CommandBuilder("test")
+                .Option(new Option { LongName = "host", Description = "Host" })
+                .SubCommand(new CommandBuilder("play").Build())
+                .Build();
 
-    [TestMethod]
-    public void TestValueAsSByte()
-    {
-        var matches = _someRoot.Parse(new string[] { "--someOption", "127" });
-        Assert.AreEqual((sbyte)127, matches.ValueAsSByte("someOption"));
-    }
+            // Option typo
+            var result1 = cmd.Parse(new[] { "--hots" })!;
+            Assert.AreEqual(ParseStatus.Failure, result1.Status);
+            Assert.IsTrue(result1.Error!.Message.Contains("host"));
 
-    [TestMethod]
-    public void TestValueAsByte()
-    {
-        var matches = _someRoot.Parse(new string[] { "--someOption", "255" });
-        Assert.AreEqual((byte)255, matches.ValueAsByte("someOption"));
-    }
+            // Subcommand typo
+            var result2 = cmd.Parse(new[] { "plya" })!;
+            Assert.AreEqual(ParseStatus.Failure, result2.Status);
+            Assert.IsTrue(result2.Error!.Message.Contains("play"));
+        }
 
-    [TestMethod]
-    public void TestValueAsUInt16()
-    {
-        var matches = _someRoot.Parse(new string[] { "--someOption", "65535" });
-        Assert.AreEqual((ushort)65535, matches.ValueAsUInt16("someOption"));
-    }
+        #endregion
 
-    [TestMethod]
-    public void TestValueAsUInt32()
-    {
-        var matches = _someRoot.Parse(new string[] { "--someOption", "4294967295" });
-        Assert.AreEqual(4294967295u, matches.ValueAsUInt32("someOption"));
-    }
+        #region Edge Cases
 
-    [TestMethod]
-    public void TestValueAsUInt64()
-    {
-        var matches = _someRoot.Parse(new string[] { "--someOption", "18446744073709551615" });
-        Assert.AreEqual(18446744073709551615ul, matches.ValueAsUInt64("someOption"));
-    }
+        [TestMethod]
+        public void TestEdgeCases()
+        {
+            var cmd = new CommandBuilder("test")
+                .Option(new Option { LongName = "host", Description = "Host" })
+                .Option(new Option { LongName = "a", Description = "a", ShortName = 'a', TakesValue = false })
+                .Option(new Option { LongName = "b", Description = "b", ShortName = 'b', TakesValue = false })
+                .Option(new Option { LongName = "c", Description = "c", ShortName = 'c', TakesValue = true })
+                .Build();
 
-    [TestMethod]
-    public void TestValueAsInt16()
-    {
-        var matches = _someRoot.Parse(new string[] { "--someOption", "32767" });
-        Assert.AreEqual((short)32767, matches.ValueAsInt16("someOption"));
-    }
+            // Empty value
+            var result1 = cmd.Parse(new[] { "--host=" })!;
+            Assert.AreEqual(ParseStatus.Success, result1.Status);
+            Assert.AreEqual("", result1.Matches!.Value("host"));
 
-    [TestMethod]
-    public void TestValueAsInt32()
-    {
-        var matches = _someRoot.Parse(new string[] { "--someOption", "2147483647" });
-        Assert.AreEqual(2147483647, matches.ValueAsInt32("someOption"));
-    }
+            // Value starting with dash
+            var result2 = cmd.Parse(new[] { "--host", "-localhost" })!;
+            Assert.AreEqual(ParseStatus.Success, result2.Status);
+            Assert.AreEqual("-localhost", result2.Matches!.Value("host"));
 
-    [TestMethod]
-    public void TestValueAsInt64()
-    {
-        var matches = _someRoot.Parse(new string[] { "--someOption", "9223372036854775807" });
-        Assert.AreEqual(9223372036854775807L, matches.ValueAsInt64("someOption"));
-    }
+            // Short option grouping
+            var result3 = cmd.Parse(new[] { "-abc", "value" })!;
+            Assert.AreEqual(ParseStatus.Success, result3.Status);
+            Assert.IsTrue(result3.Matches!.Has("a"));
+            Assert.IsTrue(result3.Matches!.Has("b"));
+            Assert.AreEqual("value", result3.Matches!.Value("c"));
 
-    [TestMethod]
-    public void TestValueAsFloat()
-    {
-        var matches = _someRoot.Parse(new string[] { "--someOption", "3.14" });
-        Assert.AreEqual(3.14f, matches.ValueAsFloat("someOption"));
-    }
+            // Case sensitivity
+            var result4 = cmd.Parse(new[] { "--Host", "127.0.0.1" })!;
+            Assert.AreEqual(ParseStatus.Failure, result4.Status);
+            Assert.IsTrue(result4.Error!.Message.Contains("Host"));
 
-    [TestMethod]
-    public void TestValueAsDouble()
-    {
-        var matches = _someRoot.Parse(new string[] { "--someOption", "3.14159" });
-        Assert.AreEqual(3.14159, matches.ValueAsDouble("someOption"));
-    }
+            // Non-ASCII characters
+            var result5 = cmd.Parse(new[] { "--host", "café" })!;
+            Assert.AreEqual(ParseStatus.Success, result5.Status);
+            Assert.AreEqual("café", result5.Matches!.Value("host"));
 
-    [TestMethod]
-    public void TestValueAsDecimal()
-    {
-        var matches = _someRoot.Parse(new string[] { "--someOption", "79228162514264337593543950335" });
-        Assert.AreEqual(79228162514264337593543950335m, matches.ValueAsDecimal("someOption"));
-    }
+            // Very long value
+            var longValue = new string('a', 10000);
+            var result6 = cmd.Parse(new[] { "--host", longValue })!;
+            Assert.AreEqual(ParseStatus.Success, result6.Status);
+            Assert.AreEqual(longValue, result6.Matches!.Value("host"));
+        }
 
-    [TestMethod]
-    public void TestValueAsBool()
-    {
-        var matches = _someRoot.Parse(new string[] { "--someOption", "true" });
-        Assert.AreEqual(true, matches.ValueAsBool("someOption"));
-    }
+        [TestMethod]
+        public void TestOptionAfterSubcommand()
+        {
+            var cmd = new CommandBuilder("test")
+                .Option(new Option { LongName = "host", Description = "Host" })
+                .SubCommand(new CommandBuilder("play").Build())
+                .Build();
 
-    [TestMethod]
-    public void TestValueAsDateTime()
-    {
-        var matches = _someRoot.Parse(new string[] { "--someOption", "2024-01-01" });
-        Assert.AreEqual(new DateTime(2024, 1, 1), matches.ValueAsDateTime("someOption"));
+            var result = cmd.Parse(new[] { "play", "--host", "127.0.0.1" })!;
+            Assert.AreEqual(ParseStatus.Failure, result.Status);
+            Assert.IsTrue(result.Error!.Message.Contains("--host"));
+        }
+
+        [TestMethod]
+        public void TestGlobalOptionBeforeSubcommand()
+        {
+            var cmd = new CommandBuilder("test")
+                .Option(new Option { LongName = "host", Description = "Host" })
+                .SubCommand(new CommandBuilder("play")
+                    .Option(new Option { LongName = "url", Description = "URL" })
+                    .Build())
+                .Build();
+
+            var result = cmd.Parse(new[] { "--host", "127.0.0.1", "play", "--url", "http://example.com" })!;
+            Assert.AreEqual(ParseStatus.Success, result.Status);
+            Assert.AreEqual("127.0.0.1", result.Matches!.Value("host"));
+            var playMatches = result.Matches!.SubCommandMatches("play");
+            Assert.AreEqual("http://example.com", playMatches!.Value("url"));
+        }
+
+        [TestMethod]
+        public void TestOptionNameConflict()
+        {
+            var cmd = new CommandBuilder("test")
+                .Option(new Option { LongName = "opt", Description = "Global opt" })
+                .SubCommand(new CommandBuilder("sub")
+                    .Option(new Option { LongName = "opt", Description = "Sub opt" })
+                    .Build())
+                .Build();
+
+            var result = cmd.Parse(new[] { "--opt", "global", "sub", "--opt", "sub" })!;
+            Assert.AreEqual(ParseStatus.Success, result.Status);
+            Assert.AreEqual("global", result.Matches!.Value("opt"));
+            var subMatches = result.Matches!.SubCommandMatches("sub");
+            Assert.AreEqual("sub", subMatches!.Value("opt"));
+        }
+
+        #endregion
     }
 }

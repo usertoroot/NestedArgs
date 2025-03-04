@@ -6,6 +6,7 @@ namespace NestedArgs;
 public class CommandMatches
 {
     private delegate bool TryParseDelegate<T>(string? s, out T result);
+    private delegate bool TryParseNumberDelegate<T>(string? s, NumberStyles style, IFormatProvider provider, out T result);
     private delegate T ConvertDelegate<T>(string? s, IFormatProvider provider);
 
     public Dictionary<string, List<string>> OptionValues { get; private set; } = new Dictionary<string, List<string>>();
@@ -21,78 +22,79 @@ public class CommandMatches
     public string? Value(string optionName)
     {
         var matchingOption = Command.Options.First(o => o.LongName == optionName);
+        if (matchingOption.AllowMultiple)
+            throw new CommandException(Command, "This option allows multiple values; use Values instead of Value.");
+
         if (OptionValues.TryGetValue(optionName, out var value))
         {
-            if (matchingOption.AllowMultiple)
-                throw new CommandException(Command, "This option allows multiple, Values should be used instead.");
-
             if (value.Count == 1)
                 return value[0];
             else if (value.Count == 0)
                 return null;
             else
-                throw new CommandException(Command, "This option does not allow multiple, but multiple values were specified. This should not be allowed.");
+                throw new CommandException(Command, "This option does not allow multiple values, but multiple were specified.");
         }
-
-        if (matchingOption.IsRequired)
-            throw new CommandException(Command, "Option is required, but not set.");
-            
-        return matchingOption.DefaultValue;
+        else
+        {
+            if (matchingOption.IsRequired && matchingOption.DefaultValue == null)
+                throw new CommandException(Command, $"Option --{optionName} is required, but not set.");
+            return matchingOption.DefaultValue;
+        }
     }
 
     public sbyte? ValueAsSByte(string optionName)
     {
-        return ParseOrConvert<sbyte>(optionName, sbyte.TryParse);
+        return ParseOrConvertNumber<sbyte>(optionName, sbyte.TryParse);
     }
 
     public byte? ValueAsByte(string optionName)
     {
-        return ParseOrConvert<byte>(optionName, byte.TryParse);
+        return ParseOrConvertNumber<byte>(optionName, byte.TryParse);
     }
 
     public ushort? ValueAsUInt16(string optionName)
     {
-        return ParseOrConvert<ushort>(optionName, ushort.TryParse);
+        return ParseOrConvertNumber<ushort>(optionName, ushort.TryParse);
     }
 
     public uint? ValueAsUInt32(string optionName)
     {
-        return ParseOrConvert<uint>(optionName, uint.TryParse);
+        return ParseOrConvertNumber<uint>(optionName, uint.TryParse);
     }
 
     public ulong? ValueAsUInt64(string optionName)
     {
-        return ParseOrConvert<ulong>(optionName, ulong.TryParse);
+        return ParseOrConvertNumber<ulong>(optionName, ulong.TryParse);
     }
 
     public short? ValueAsInt16(string optionName)
     {
-        return ParseOrConvert<short>(optionName, short.TryParse);
+        return ParseOrConvertNumber<short>(optionName, short.TryParse);
     }
 
     public int? ValueAsInt32(string optionName)
     {
-        return ParseOrConvert<int>(optionName, int.TryParse);
+        return ParseOrConvertNumber<int>(optionName, int.TryParse);
     }
 
     public long? ValueAsInt64(string optionName)
     {
-        return ParseOrConvert<long>(optionName, long.TryParse);
+        return ParseOrConvertNumber<long>(optionName, long.TryParse);
     }
 
     public float? ValueAsFloat(string optionName)
     {
-        return ParseOrConvert<float>(optionName, float.TryParse);
+        return ParseOrConvertNumber<float>(optionName, float.TryParse);
     }
 
     public double? ValueAsDouble(string optionName)
     {
-        return ParseOrConvert<double>(optionName, double.TryParse);
+        return ParseOrConvertNumber<double>(optionName, double.TryParse);
     }
 
     public decimal? ValueAsDecimal(string optionName)
     {
-        return ParseOrConvert<decimal>(optionName, decimal.TryParse);
+        return ParseOrConvertNumber<decimal>(optionName, decimal.TryParse);
     }
 
     public bool? ValueAsBool(string optionName)
@@ -107,7 +109,7 @@ public class CommandMatches
     public DateTime? ValueAsDateTime(string optionName)
     {
         string? stringValue = Value(optionName);
-        if (DateTime.TryParse(stringValue, out var result))
+        if (DateTime.TryParse(stringValue, CultureInfo.InvariantCulture, DateTimeStyles.None, out var result))
             return result;
         return null;
     }
@@ -116,6 +118,14 @@ public class CommandMatches
     {
         string? stringValue = Value(optionName);
         if (tryParse(stringValue, out T result))
+            return result;
+        return null;
+    }
+
+    private T? ParseOrConvertNumber<T>(string optionName, TryParseNumberDelegate<T> tryParse) where T : unmanaged
+    {
+        string? stringValue = Value(optionName);
+        if (tryParse(stringValue, NumberStyles.Any, CultureInfo.InvariantCulture, out T result))
             return result;
         return null;
     }
@@ -166,14 +176,23 @@ public class CommandMatches
         foreach (var option in OptionValues)
         {
             var matchingOption = Command.Options.First(o => o.LongName == option.Key);
-            if (matchingOption.AllowMultiple)
+            if (matchingOption.TakesValue)
             {
-                var values = Values(option.Key);
-                var valuesStr = values != null ? "(" + string.Join(", ", values) + ")" : "<empty>";
-                builder.AppendLine($"{new string(' ', (indent + 1) * 2)}Option: {option.Key}, Values: {valuesStr}");
+                if (matchingOption.AllowMultiple)
+                {
+                    var values = Values(option.Key);
+                    var valuesStr = values != null ? "(" + string.Join(", ", values) + ")" : "<empty>";
+                    builder.AppendLine($"{new string(' ', (indent + 1) * 2)}Option: {option.Key}, Values: {valuesStr}");
+                }
+                else
+                {
+                    builder.AppendLine($"{new string(' ', (indent + 1) * 2)}Option: {option.Key}, Value: {Value(option.Key)}");
+                }
             }
             else
-                builder.AppendLine($"{new string(' ', (indent + 1) * 2)}Option: {option.Key}, Value: {Value(option.Key)}");
+            {
+                builder.AppendLine($"{new string(' ', (indent + 1) * 2)}Option: {option.Key}, Present: {Has(option.Key)}");
+            }
         }
 
         if (SubCommandMatch != null)

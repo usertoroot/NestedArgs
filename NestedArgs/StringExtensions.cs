@@ -16,6 +16,9 @@ public static class StringExtensions
     {
         var source1Length = source1.Length;
         var source2Length = source2.Length;
+        if ((long)(source1Length + 1) * (source2Length + 1) > int.MaxValue)
+            throw new ArgumentException("Input strings are too long to compute Levenshtein distance.");
+
         var matrix = new int[source1Length + 1, source2Length + 1];
 
         if (source1Length == 0)
